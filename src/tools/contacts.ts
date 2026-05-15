@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackContact, PropstackContactSource, PropstackPaginatedResponse } from "../types/propstack.js";
-import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { textResult, errorResult, fmt, stripUndefined, verifyWritePin } from "./helpers.js";
 
 /**
  * Generate search variants for a phone number. Propstack normalizes spaces/dashes
@@ -271,13 +271,18 @@ Use get_contact_sources first to find valid source IDs.`,
           .describe("Custom field values as key-value pairs (use list_custom_fields to discover available fields)"),
         group_ids: z.array(z.number()).optional()
           .describe("Tag/group IDs to assign to this contact"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { write_pin: _, ...contactArgs } = args;
         const contact = await client.post<PropstackContact>(
           "/contacts",
-          { body: { client: stripUndefined(args) } },
+          { body: { client: stripUndefined(contactArgs) } },
         );
 
         return textResult(`Contact created successfully.\n\n${formatContact(contact)}`);
@@ -347,11 +352,15 @@ Only provide the fields you want to change.`,
           .describe("Add these tag IDs without removing existing tags"),
         sub_group_ids: z.array(z.number()).optional()
           .describe("Remove these tag IDs from the contact"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
-        const { id, ...fields } = args;
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { id, write_pin: _, ...fields } = args;
         const contact = await client.put<PropstackContact>(
           `/contacts/${id}`,
           { body: { client: stripUndefined(fields) } },
@@ -381,10 +390,14 @@ Use this tool for:
       inputSchema: {
         id: z.number()
           .describe("Contact ID to delete"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
         await client.delete(`/contacts/${args.id}`);
         return textResult(`Contact ${args.id} deleted (moved to recycle bin for 30 days).`);
       } catch (err) {

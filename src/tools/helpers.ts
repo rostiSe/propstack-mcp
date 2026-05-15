@@ -154,6 +154,21 @@ export function fmtNested(obj: unknown, key: string, fallback = "none"): string 
 }
 
 /**
+ * Check the write PIN before executing any mutating operation.
+ * Returns an error string to return to the caller, or null if the PIN is valid.
+ */
+export function verifyWritePin(provided: string | undefined): string | null {
+  const expected = process.env.WRITE_PIN;
+  if (!expected) {
+    return "Write operations are disabled: WRITE_PIN is not configured. Ask your administrator to set the WRITE_PIN environment variable.";
+  }
+  if (!provided || provided !== expected) {
+    return "Write operation blocked: incorrect or missing write_pin. Ask the user to provide their security PIN before retrying.";
+  }
+  return null;
+}
+
+/**
  * Remove keys with undefined values from an object so we don't send
  * nulls to the API when optional fields are omitted.
  */

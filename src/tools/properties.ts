@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackProperty, PropstackPropertyStatus, PropstackPaginatedResponse } from "../types/propstack.js";
-import { textResult, errorResult, fmt, fmtPrice, fmtArea, stripUndefined } from "./helpers.js";
+import { textResult, errorResult, fmt, fmtPrice, fmtArea, stripUndefined, verifyWritePin } from "./helpers.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -357,13 +357,18 @@ rs_category provides sub-types (e.g. PENTHOUSE, VILLA, MAISONETTE for APARTMENT/
           related_client_id: z.number().describe("Contact ID to link"),
         })).optional()
           .describe('Link contacts on creation, e.g. [{internal_name: "owner", related_client_id: 123}]'),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { write_pin: _, ...propertyArgs } = args;
         const property = await client.post<PropstackProperty>(
           "/units",
-          { body: { property: stripUndefined(args) } },
+          { body: { property: stripUndefined(propertyArgs) } },
         );
 
         return textResult(`Property created successfully.\n\n${formatProperty(property)}`);
@@ -426,11 +431,15 @@ Use get_property_statuses to look up valid status IDs.`,
         status: z.number().optional().describe("Property status ID (use get_property_statuses)"),
         partial_custom_fields: z.record(z.string(), z.unknown()).optional()
           .describe("Custom field values as key-value pairs"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
-        const { id, ...fields } = args;
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { id, write_pin: _, ...fields } = args;
         const property = await client.put<PropstackProperty>(
           `/units/${id}`,
           { body: { property: stripUndefined(fields) } },

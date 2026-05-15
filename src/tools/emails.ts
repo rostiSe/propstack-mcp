@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackEmail } from "../types/propstack.js";
-import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { textResult, errorResult, fmt, stripUndefined, verifyWritePin } from "./helpers.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -77,13 +77,18 @@ Important:
           .describe("Property IDs to link this email to"),
         project_ids: z.array(z.number()).optional()
           .describe("Project IDs to link this email to"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { write_pin: _, ...emailArgs } = args;
         const email = await client.post<PropstackEmail>(
           "/messages",
-          { body: { message: stripUndefined(args) } },
+          { body: { message: stripUndefined(emailArgs) } },
         );
 
         return textResult(`Email sent successfully.\n\n${formatEmail(email)}`);
@@ -123,11 +128,15 @@ Only provide the fields you want to change.`,
           .describe("Property IDs to link this email to"),
         project_ids: z.array(z.number()).optional()
           .describe("Project IDs to link this email to"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
-        const { id, ...fields } = args;
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { id, write_pin: _, ...fields } = args;
         const email = await client.put<PropstackEmail>(
           `/messages/${id}`,
           { body: { message: stripUndefined(fields) } },

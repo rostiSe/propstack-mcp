@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackSearchProfile, PropstackPaginatedResponse } from "../types/propstack.js";
-import { textResult, errorResult, fmt, fmtPrice, stripUndefined, unwrapNumber, unwrapPropstackValue } from "./helpers.js";
+import { textResult, errorResult, fmt, fmtPrice, stripUndefined, unwrapNumber, unwrapPropstackValue, verifyWritePin } from "./helpers.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -308,13 +308,18 @@ Use radius search (lat/lng/radius) for "within 5km of Alexanderplatz".`,
         client_id: z.number()
           .describe("Contact ID this search profile belongs to (required)"),
         ...searchProfileFields(),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { write_pin: _, ...profileArgs } = args;
         const profile = await client.post<PropstackSearchProfile>(
           "/saved_queries",
-          { body: { saved_query: stripUndefined(args) } },
+          { body: { saved_query: stripUndefined(profileArgs) } },
         );
 
         return textResult(`Search profile created successfully.\n\n${formatSearchProfile(profile)}`);
@@ -346,11 +351,15 @@ Only provide the fields you want to change.`,
         client_id: z.number().optional()
           .describe("Contact ID (rarely changed)"),
         ...searchProfileFields(),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
-        const { id, ...fields } = args;
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { id, write_pin: _, ...fields } = args;
         const profile = await client.put<PropstackSearchProfile>(
           `/saved_queries/${id}`,
           { body: { saved_query: stripUndefined(fields) } },
@@ -378,10 +387,14 @@ Use this tool when:
       inputSchema: {
         id: z.number()
           .describe("Search profile ID to delete"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
         await client.delete(`/saved_queries/${args.id}`);
         return textResult(`Search profile ${args.id} deleted.`);
       } catch (err) {

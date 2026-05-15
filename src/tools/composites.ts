@@ -11,7 +11,7 @@ import type {
   PropstackTask,
   PropstackPaginatedResponse,
 } from "../types/propstack.js";
-import { textResult, errorResult, fmt, fmtPrice, fmtArea, formatError, stripUndefined, unwrapNumber } from "./helpers.js";
+import { textResult, errorResult, fmt, fmtPrice, fmtArea, formatError, stripUndefined, unwrapNumber, verifyWritePin } from "./helpers.js";
 import { enrichDealsWithStageNames, fetchPipelines } from "./deals.js";
 
 function daysBetween(from: string, to: Date): number {
@@ -592,10 +592,14 @@ Returns what was done: created vs updated, IDs of all created records.`,
           .describe("Free text about what the lead is looking for (logged as note, not parsed into search profile)"),
         property_id: z.number().optional()
           .describe("Specific property ID the lead is interested in (creates a deal)"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
         let contactId: number | undefined;
         let action: "created" | "updated" = "created";
 

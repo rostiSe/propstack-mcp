@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackTask } from "../types/propstack.js";
-import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { textResult, errorResult, fmt, stripUndefined, verifyWritePin } from "./helpers.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -161,13 +161,18 @@ The body field accepts HTML content.`,
         // State
         state: z.string().optional()
           .describe("Event state (e.g. 'neutral', 'took_place', 'cancelled')"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { write_pin: _, ...taskArgs } = args;
         const task = await client.post<PropstackTask>(
           "/tasks",
-          { body: { task: stripUndefined(args) } },
+          { body: { task: stripUndefined(taskArgs) } },
         );
 
         return textResult(`Task created successfully.\n\n${formatTask(task)}`);
@@ -249,11 +254,15 @@ Only provide the fields you want to change.`,
         // State
         state: z.string().optional()
           .describe("Event state (e.g. 'neutral', 'took_place', 'cancelled')"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
-        const { id, ...fields } = args;
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { id, write_pin: _, ...fields } = args;
         const task = await client.put<PropstackTask>(
           `/tasks/${id}`,
           { body: { task: stripUndefined(fields) } },

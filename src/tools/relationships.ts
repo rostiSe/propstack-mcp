@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackRelationship } from "../types/propstack.js";
-import { textResult, errorResult } from "./helpers.js";
+import { textResult, errorResult, verifyWritePin } from "./helpers.js";
 
 // ── Tool registration ────────────────────────────────────────────────
 
@@ -26,13 +26,18 @@ The ownership appears on both the contact's and the property's record.`,
           .describe("Contact ID (the owner)"),
         property_id: z.number()
           .describe("Property ID (the owned property)"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { write_pin: _, ...relArgs } = args;
         const rel = await client.post<PropstackRelationship>(
           "/ownerships",
-          { body: args },
+          { body: relArgs },
         );
 
         return textResult(
@@ -66,13 +71,18 @@ The name field describes the role (e.g. "Käufer", "Mieter", "Verwalter").`,
           .describe("Property ID"),
         name: z.string().optional()
           .describe("Role name (e.g. 'Käufer', 'Mieter', 'Verwalter')"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
+        const { write_pin: _, ...relArgs } = args;
         const rel = await client.post<PropstackRelationship>(
           "/partnerships",
-          { body: args },
+          { body: relArgs },
         );
 
         const role = rel.name ? ` as "${rel.name}"` : "";

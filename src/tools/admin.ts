@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackWebhook, PropstackProperty } from "../types/propstack.js";
-import { textResult, errorResult, fmt, fmtPrice } from "./helpers.js";
+import { textResult, errorResult, fmt, fmtPrice, verifyWritePin } from "./helpers.js";
 
 // ── Tool registration ────────────────────────────────────────────────
 
@@ -70,10 +70,14 @@ Use this to set up automation triggers, e.g.:
           .describe("Event name (e.g. 'CLIENT_CREATED', 'CLIENT_UPDATED', 'PROPERTY_UPDATED')"),
         target_url: z.string()
           .describe("URL that Propstack will POST to when the event fires"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
         const hook = await client.post<PropstackWebhook>(
           "/hooks",
           { body: { event: args.event, target_url: args.target_url } },
@@ -106,10 +110,14 @@ Removes the webhook so Propstack will stop sending events to its URL.`,
       inputSchema: {
         id: z.number()
           .describe("Webhook ID to delete"),
+        write_pin: z.string()
+          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
       try {
+        const pinErr = verifyWritePin(args.write_pin);
+        if (pinErr) return textResult(pinErr);
         await client.delete(`/hooks/${args.id}`);
         return textResult(`Webhook ${args.id} deleted.`);
       } catch (err) {
