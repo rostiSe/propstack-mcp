@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackContact, PropstackContactSource, PropstackPaginatedResponse } from "../types/propstack.js";
-import { textResult, errorResult, fmt, stripUndefined, verifyWritePin } from "./helpers.js";
+import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 /**
  * Generate search variants for a phone number. Propstack normalizes spaces/dashes
@@ -271,24 +272,22 @@ Use get_contact_sources first to find valid source IDs.`,
           .describe("Custom field values as key-value pairs (use list_custom_fields to discover available fields)"),
         group_ids: z.array(z.number()).optional()
           .describe("Tag/group IDs to assign to this contact"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { write_pin: _, ...contactArgs } = args;
+      const name = [args.first_name, args.last_name].filter(Boolean).join(" ") || "(no name)";
+      const summary =
+        `Create contact: ${name}\n` +
+        `  Email: ${args.email ?? "—"}\n` +
+        `  Phone: ${args.phone ?? "—"}`;
+
+      return stageMutation("create_contact", summary, async () => {
         const contact = await client.post<PropstackContact>(
           "/contacts",
-          { body: { client: stripUndefined(contactArgs) } },
+          { body: { client: stripUndefined(args) } },
         );
-
-        return textResult(`Contact created successfully.\n\n${formatContact(contact)}`);
-      } catch (err) {
-        return errorResult("Contact", err);
-      }
+        return `Contact created (ID: ${contact.id}).\n\n${formatContact(contact)}`;
+      });
     },
   );
 
@@ -352,24 +351,20 @@ Only provide the fields you want to change.`,
           .describe("Add these tag IDs without removing existing tags"),
         sub_group_ids: z.array(z.number()).optional()
           .describe("Remove these tag IDs from the contact"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { id, write_pin: _, ...fields } = args;
+      const { id, ...fields } = args;
+      const changedFields = Object.keys(fields).filter((k) => (fields as Record<string, unknown>)[k] !== undefined);
+      const summary = `Update contact #${id}\n  Fields: ${changedFields.join(", ") || "(none)"}`;
+
+      return stageMutation("update_contact", summary, async () => {
         const contact = await client.put<PropstackContact>(
           `/contacts/${id}`,
           { body: { client: stripUndefined(fields) } },
         );
-
-        return textResult(`Contact updated successfully.\n\n${formatContact(contact)}`);
-      } catch (err) {
-        return errorResult("Contact", err);
-      }
+        return `Contact ${id} updated.\n\n${formatContact(contact)}`;
+      });
     },
   );
 
@@ -390,19 +385,15 @@ Use this tool for:
       inputSchema: {
         id: z.number()
           .describe("Contact ID to delete"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
+      const summary = `⚠️  DELETE contact #${args.id} (moved to 30-day recycle bin)`;
+
+      return stageMutation("delete_contact", summary, async () => {
         await client.delete(`/contacts/${args.id}`);
-        return textResult(`Contact ${args.id} deleted (moved to recycle bin for 30 days).`);
-      } catch (err) {
-        return errorResult("Contact", err);
-      }
+        return `Contact ${args.id} deleted (moved to recycle bin for 30 days).`;
+      });
     },
   );
 

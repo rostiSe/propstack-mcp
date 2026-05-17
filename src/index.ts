@@ -20,6 +20,7 @@ import { registerRelationshipTools } from "./tools/relationships.js";
 import { registerLookupTools } from "./tools/lookups.js";
 import { registerCompositeTools } from "./tools/composites.js";
 import { registerAdminTools } from "./tools/admin.js";
+import { registerConfirmWriteTool } from "./tools/gatekeeper.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { name: string; version: string };
@@ -58,6 +59,7 @@ registerRelationshipTools(server, client);
 registerLookupTools(server, client);
 registerCompositeTools(server, client);
 registerAdminTools(server, client);
+registerConfirmWriteTool(server);
 
 async function main() {
   const transport = new StdioServerTransport();

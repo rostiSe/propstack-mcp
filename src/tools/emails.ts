@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackEmail } from "../types/propstack.js";
-import { textResult, errorResult, fmt, stripUndefined, verifyWritePin } from "./helpers.js";
+import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -77,24 +78,22 @@ Important:
           .describe("Property IDs to link this email to"),
         project_ids: z.array(z.number()).optional()
           .describe("Project IDs to link this email to"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { write_pin: _, ...emailArgs } = args;
+      const summary =
+        `Send email via broker #${args.broker_id}\n` +
+        `  To: ${args.to.join(", ")}\n` +
+        `  Template ID: ${args.snippet_id}` +
+        (args.cc?.length ? `\n  CC: ${args.cc.join(", ")}` : "");
+
+      return stageMutation("send_email", summary, async () => {
         const email = await client.post<PropstackEmail>(
           "/messages",
-          { body: { message: stripUndefined(emailArgs) } },
+          { body: { message: stripUndefined(args) } },
         );
-
-        return textResult(`Email sent successfully.\n\n${formatEmail(email)}`);
-      } catch (err) {
-        return errorResult("Email", err);
-      }
+        return `Email sent (ID: ${email.id}).\n\n${formatEmail(email)}`;
+      });
     },
   );
 
@@ -128,24 +127,20 @@ Only provide the fields you want to change.`,
           .describe("Property IDs to link this email to"),
         project_ids: z.array(z.number()).optional()
           .describe("Project IDs to link this email to"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { id, write_pin: _, ...fields } = args;
+      const { id, ...fields } = args;
+      const changedFields = Object.keys(fields).filter((k) => (fields as Record<string, unknown>)[k] !== undefined);
+      const summary = `Update email #${id}\n  Fields: ${changedFields.join(", ") || "(none)"}`;
+
+      return stageMutation("update_email", summary, async () => {
         const email = await client.put<PropstackEmail>(
           `/messages/${id}`,
           { body: { message: stripUndefined(fields) } },
         );
-
-        return textResult(`Email updated successfully.\n\n${formatEmail(email)}`);
-      } catch (err) {
-        return errorResult("Email", err);
-      }
+        return `Email ${id} updated.\n\n${formatEmail(email)}`;
+      });
     },
   );
 }

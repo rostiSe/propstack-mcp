@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackDocument, PropstackPaginatedResponse } from "../types/propstack.js";
-import { textResult, errorResult, fmt, stripUndefined, verifyWritePin } from "./helpers.js";
+import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -123,24 +124,19 @@ Use the boolean flags to classify the document:
           .describe("Mark as exposé document"),
         on_landing_page: z.boolean().optional()
           .describe("Show on property landing page"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { write_pin: _, ...docArgs } = args;
+      const target = args.property_id ? `property #${args.property_id}` : args.project_id ? `project #${args.project_id}` : args.client_id ? `contact #${args.client_id}` : "unknown";
+      const summary = `Upload document: "${args.title}" → ${target}`;
+
+      return stageMutation("upload_document", summary, async () => {
         const document = await client.post<PropstackDocument>(
           "/documents",
-          { body: { document: stripUndefined(docArgs) } },
+          { body: { document: stripUndefined(args) } },
         );
-
-        return textResult(`Document uploaded successfully.\n\n${formatDocument(document)}`);
-      } catch (err) {
-        return errorResult("Document", err);
-      }
+        return `Document uploaded (ID: ${document.id}).\n\n${formatDocument(document)}`;
+      });
     },
   );
 }

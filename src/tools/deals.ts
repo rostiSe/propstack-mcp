@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackDeal, PropstackDealPipeline, PropstackPaginatedResponse } from "../types/propstack.js";
-import { textResult, errorResult, fmt, fmtPrice, stripUndefined, verifyWritePin } from "./helpers.js";
+import { textResult, errorResult, fmt, fmtPrice, stripUndefined } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -265,28 +266,24 @@ get_pipeline to find valid pipeline and stage IDs.`,
           .describe("Deal date (ISO 8601)"),
         feeling: z.number().optional()
           .describe("Feeling score: 0=none, 1=cold, 2=warm, 3=hot"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { write_pin: _, ...dealArgs } = args;
+      const summary =
+        `Create deal: contact #${args.client_id} → property #${args.property_id}\n` +
+        `  Stage ID: ${args.deal_stage_id}${args.note ? `\n  Note: ${args.note}` : ""}`;
+
+      return stageMutation("create_deal", summary, async () => {
         const [deal, pipelines] = await Promise.all([
           client.post<PropstackDeal>(
             "/client_properties",
-            { body: { client_property: stripUndefined(dealArgs) } },
+            { body: { client_property: stripUndefined(args) } },
           ),
           fetchPipelines(client).catch(() => [] as PropstackDealPipeline[]),
         ]);
-
         enrichDealsWithStageNames([deal], pipelines);
-        return textResult(`Deal created successfully.\n\n${formatDeal(deal)}`);
-      } catch (err) {
-        return errorResult("Deal", err);
-      }
+        return `Deal created (ID: ${deal.id}).\n\n${formatDeal(deal)}`;
+      });
     },
   );
 
@@ -332,15 +329,14 @@ Only provide the fields you want to change.`,
           .describe("Deal category"),
         reservation_reason_id: z.number().optional()
           .describe("Cancellation/reservation reason ID (for lost deals)"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { id, write_pin: _, ...fields } = args;
+      const { id, ...fields } = args;
+      const changedFields = Object.keys(fields).filter((k) => (fields as Record<string, unknown>)[k] !== undefined);
+      const summary = `Update deal #${id}\n  Fields: ${changedFields.join(", ") || "(none)"}`;
+
+      return stageMutation("update_deal", summary, async () => {
         const [deal, pipelines] = await Promise.all([
           client.put<PropstackDeal>(
             `/client_properties/${id}`,
@@ -348,12 +344,9 @@ Only provide the fields you want to change.`,
           ),
           fetchPipelines(client).catch(() => [] as PropstackDealPipeline[]),
         ]);
-
         enrichDealsWithStageNames([deal], pipelines);
-        return textResult(`Deal updated successfully.\n\n${formatDeal(deal)}`);
-      } catch (err) {
-        return errorResult("Deal", err);
-      }
+        return `Deal ${id} updated.\n\n${formatDeal(deal)}`;
+      });
     },
   );
 }

@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackTask } from "../types/propstack.js";
-import { textResult, errorResult, fmt, stripUndefined, verifyWritePin } from "./helpers.js";
+import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -161,24 +162,24 @@ The body field accepts HTML content.`,
         // State
         state: z.string().optional()
           .describe("Event state (e.g. 'neutral', 'took_place', 'cancelled')"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { write_pin: _, ...taskArgs } = args;
+      const mode = args.is_event ? "Appointment" : args.is_reminder ? "To-do" : args.reservation_reason_id ? "Cancellation" : "Note";
+      const summary =
+        `Create ${mode}: "${args.title}"\n` +
+        (args.client_ids?.length ? `  Contacts: #${args.client_ids.join(", #")}\n` : "") +
+        (args.property_ids?.length ? `  Properties: #${args.property_ids.join(", #")}\n` : "") +
+        (args.starts_at ? `  Starts: ${args.starts_at}\n` : "") +
+        (args.due_date ? `  Due: ${args.due_date}\n` : "");
+
+      return stageMutation("create_task", summary.trimEnd(), async () => {
         const task = await client.post<PropstackTask>(
           "/tasks",
-          { body: { task: stripUndefined(taskArgs) } },
+          { body: { task: stripUndefined(args) } },
         );
-
-        return textResult(`Task created successfully.\n\n${formatTask(task)}`);
-      } catch (err) {
-        return errorResult("Task", err);
-      }
+        return `Task created (ID: ${task.id}).\n\n${formatTask(task)}`;
+      });
     },
   );
 
@@ -254,24 +255,20 @@ Only provide the fields you want to change.`,
         // State
         state: z.string().optional()
           .describe("Event state (e.g. 'neutral', 'took_place', 'cancelled')"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { id, write_pin: _, ...fields } = args;
+      const { id, ...fields } = args;
+      const changedFields = Object.keys(fields).filter((k) => (fields as Record<string, unknown>)[k] !== undefined);
+      const summary = `Update task #${id}\n  Fields: ${changedFields.join(", ") || "(none)"}`;
+
+      return stageMutation("update_task", summary, async () => {
         const task = await client.put<PropstackTask>(
           `/tasks/${id}`,
           { body: { task: stripUndefined(fields) } },
         );
-
-        return textResult(`Task updated successfully.\n\n${formatTask(task)}`);
-      } catch (err) {
-        return errorResult("Task", err);
-      }
+        return `Task ${id} updated.\n\n${formatTask(task)}`;
+      });
     },
   );
 

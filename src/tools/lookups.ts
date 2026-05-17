@@ -13,7 +13,8 @@ import type {
   PropstackContactStatus,
   PropstackReservationReason,
 } from "../types/propstack.js";
-import { textResult, errorResult, fmt, verifyWritePin } from "./helpers.js";
+import { textResult, errorResult, fmt } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 import { fetchPipelines } from "./deals.js";
 
 // ── Response formatting ──────────────────────────────────────────────
@@ -217,27 +218,21 @@ Examples: "Penthouse-Käufer", "VIP", "Kapitalanleger", "Erstbezug".`,
           .describe("Which entity type this tag applies to"),
         super_group_id: z.number().optional()
           .describe("Parent super-group ID (Obermerkmal) for hierarchy"),
-        write_pin: z.string()
-          .describe("Security PIN for write operations. STOP — ask the user for their write_pin before calling this tool. Never guess it."),
       },
     },
     async (args) => {
-      try {
-        const pinErr = verifyWritePin(args.write_pin);
-        if (pinErr) return textResult(pinErr);
-        const { write_pin: _, ...tagArgs } = args;
+      const summary = `Create tag: "${args.name}" (${args.entity})${args.super_group_id ? ` → group #${args.super_group_id}` : ""}`;
+
+      return stageMutation("create_tag", summary, async () => {
         const tag = await client.post<PropstackTag>(
           "/groups",
-          { body: tagArgs },
+          { body: args },
         );
-
-        return textResult(
+        return (
           `Tag created: **${fmt(tag.name)}** (ID: ${tag.id})` +
-          (tag.super_group_id ? ` — parent group: ${tag.super_group_id}` : ""),
+          (tag.super_group_id ? ` — parent group: ${tag.super_group_id}` : "")
         );
-      } catch (err) {
-        return errorResult("Tag", err);
-      }
+      });
     },
   );
 
