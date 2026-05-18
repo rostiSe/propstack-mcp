@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackProperty, PropstackPropertyStatus, PropstackPaginatedResponse } from "../types/propstack.js";
 import { textResult, errorResult, fmt, fmtPrice, fmtArea, stripUndefined } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -360,16 +361,33 @@ rs_category provides sub-types (e.g. PENTHOUSE, VILLA, MAISONETTE for APARTMENT/
       },
     },
     async (args) => {
-      try {
+      const { status, ...propertyArgs } = args;
+      const payload: Record<string, unknown> = { ...propertyArgs };
+      if (status !== undefined) payload["property_status_id"] = status;
+
+      const addr = [args.street, args.house_number].filter(Boolean).join(" ");
+      const city = [args.zip_code, args.city].filter(Boolean).join(" ");
+      const location = [addr, city, args.country].filter(Boolean).join(", ") || "no address";
+      const priceStr = args.price ? `${args.price.toLocaleString("de-DE")} €` : args.base_rent ? `${args.base_rent.toLocaleString("de-DE")} €/mo` : "no price";
+      const summary =
+        `Create property: ${args.title ?? "(no title)"}\n` +
+        `  Address: ${location}\n` +
+        `  Type: ${args.marketing_type ?? "?"} / ${args.rs_type ?? "?"}\n` +
+        `  Price: ${priceStr}`;
+
+      return stageMutation("create_property", summary, async () => {
         const property = await client.post<PropstackProperty>(
           "/units",
-          { body: { property: stripUndefined(args) } },
+          { body: { property: stripUndefined(payload) } },
         );
-
-        return textResult(`Property created successfully.\n\n${formatProperty(property)}`);
-      } catch (err) {
-        return errorResult("Property", err);
-      }
+        // Re-fetch for full data (POST returns minimal object)
+        try {
+          const full = await client.get<PropstackProperty>(`/units/${property.id}`, { params: { new: 1, expand: 1 } });
+          return `Property created (ID: ${property.id}).\n\n${formatProperty(full)}`;
+        } catch {
+          return `Property created (ID: ${property.id}).\n\n${formatProperty(property)}`;
+        }
+      });
     },
   );
 
@@ -429,17 +447,22 @@ Use get_property_statuses to look up valid status IDs.`,
       },
     },
     async (args) => {
-      try {
-        const { id, ...fields } = args;
+      const { id, status, ...fields } = args;
+      const payload: Record<string, unknown> = { ...fields };
+      if (status !== undefined) payload["property_status_id"] = status;
+
+      const changedFields = Object.keys(fields).filter((k) => (fields as Record<string, unknown>)[k] !== undefined);
+      const summary =
+        `Update property #${id}\n` +
+        `  Fields: ${changedFields.join(", ") || "(none)"}`;
+
+      return stageMutation("update_property", summary, async () => {
         const property = await client.put<PropstackProperty>(
           `/units/${id}`,
-          { body: { property: stripUndefined(fields) } },
+          { body: { property: stripUndefined(payload) } },
         );
-
-        return textResult(`Property updated successfully.\n\n${formatProperty(property)}`);
-      } catch (err) {
-        return errorResult("Property", err);
-      }
+        return `Property ${id} updated.\n\n${formatProperty(property)}`;
+      });
     },
   );
 

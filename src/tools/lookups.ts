@@ -14,6 +14,7 @@ import type {
   PropstackReservationReason,
 } from "../types/propstack.js";
 import { textResult, errorResult, fmt } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 import { fetchPipelines } from "./deals.js";
 
 // ── Response formatting ──────────────────────────────────────────────
@@ -220,19 +221,18 @@ Examples: "Penthouse-Käufer", "VIP", "Kapitalanleger", "Erstbezug".`,
       },
     },
     async (args) => {
-      try {
+      const summary = `Create tag: "${args.name}" (${args.entity})${args.super_group_id ? ` → group #${args.super_group_id}` : ""}`;
+
+      return stageMutation("create_tag", summary, async () => {
         const tag = await client.post<PropstackTag>(
           "/groups",
           { body: args },
         );
-
-        return textResult(
+        return (
           `Tag created: **${fmt(tag.name)}** (ID: ${tag.id})` +
-          (tag.super_group_id ? ` — parent group: ${tag.super_group_id}` : ""),
+          (tag.super_group_id ? ` — parent group: ${tag.super_group_id}` : "")
         );
-      } catch (err) {
-        return errorResult("Tag", err);
-      }
+      });
     },
   );
 

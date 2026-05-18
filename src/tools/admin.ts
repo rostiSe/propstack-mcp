@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackWebhook, PropstackProperty } from "../types/propstack.js";
 import { textResult, errorResult, fmt, fmtPrice } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 // ── Tool registration ────────────────────────────────────────────────
 
@@ -73,12 +74,13 @@ Use this to set up automation triggers, e.g.:
       },
     },
     async (args) => {
-      try {
+      const summary = `Create webhook: event "${args.event}" → ${args.target_url}`;
+
+      return stageMutation("create_webhook", summary, async () => {
         const hook = await client.post<PropstackWebhook>(
           "/hooks",
           { body: { event: args.event, target_url: args.target_url } },
         );
-
         const lines: (string | null)[] = [
           `Webhook created (ID: ${hook.id}).`,
           `URL: ${fmt(hook.target_url)}`,
@@ -86,11 +88,8 @@ Use this to set up automation triggers, e.g.:
           `Active: ${hook.active !== false ? "yes" : "no"}`,
           hook.secret ? `HMAC Secret: ${hook.secret}` : null,
         ];
-
-        return textResult(lines.filter(Boolean).join("\n"));
-      } catch (err) {
-        return errorResult("Webhook", err);
-      }
+        return lines.filter(Boolean).join("\n");
+      });
     },
   );
 
@@ -109,12 +108,12 @@ Removes the webhook so Propstack will stop sending events to its URL.`,
       },
     },
     async (args) => {
-      try {
+      const summary = `⚠️  DELETE webhook #${args.id} (permanent)`;
+
+      return stageMutation("delete_webhook", summary, async () => {
         await client.delete(`/hooks/${args.id}`);
-        return textResult(`Webhook ${args.id} deleted.`);
-      } catch (err) {
-        return errorResult("Webhook", err);
-      }
+        return `Webhook ${args.id} deleted.`;
+      });
     },
   );
 

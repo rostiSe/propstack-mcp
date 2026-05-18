@@ -7,11 +7,11 @@ import type {
   PropstackDeal,
   PropstackActivity,
   PropstackSearchProfile,
-  PropstackDealPipeline,
   PropstackTask,
   PropstackPaginatedResponse,
 } from "../types/propstack.js";
 import { textResult, errorResult, fmt, fmtPrice, fmtArea, formatError, stripUndefined, unwrapNumber } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 import { enrichDealsWithStageNames, fetchPipelines } from "./deals.js";
 
 function daysBetween(from: string, to: Date): number {
@@ -595,7 +595,14 @@ Returns what was done: created vs updated, IDs of all created records.`,
       },
     },
     async (args) => {
-      try {
+      const name = `${args.first_name} ${args.last_name}`.trim();
+      const summary =
+        `Lead intake: ${name}\n` +
+        `  Phone: ${args.phone ?? "—"}  Email: ${args.email ?? "—"}\n` +
+        (args.property_id ? `  Property interest: #${args.property_id}\n` : "") +
+        `  Actions: dedup search → create/update contact → note → deal → follow-up reminder`;
+
+      return stageMutation("smart_lead_intake", summary, async () => {
         let contactId: number | undefined;
         let action: "created" | "updated" = "created";
 
@@ -751,10 +758,8 @@ Returns what was done: created vs updated, IDs of all created records.`,
           lines.push(`Follow-up: failed to create reminder — ${formatError(reminderRes.reason)}`);
         }
 
-        return textResult(lines.join("\n"));
-      } catch (err) {
-        return errorResult("Lead intake", err);
-      }
+        return lines.join("\n");
+      });
     },
   );
 

@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackEmail } from "../types/propstack.js";
 import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 // ── Response formatting ──────────────────────────────────────────────
 
@@ -80,16 +81,19 @@ Important:
       },
     },
     async (args) => {
-      try {
+      const summary =
+        `Send email via broker #${args.broker_id}\n` +
+        `  To: ${args.to.join(", ")}\n` +
+        `  Template ID: ${args.snippet_id}` +
+        (args.cc?.length ? `\n  CC: ${args.cc.join(", ")}` : "");
+
+      return stageMutation("send_email", summary, async () => {
         const email = await client.post<PropstackEmail>(
           "/messages",
           { body: { message: stripUndefined(args) } },
         );
-
-        return textResult(`Email sent successfully.\n\n${formatEmail(email)}`);
-      } catch (err) {
-        return errorResult("Email", err);
-      }
+        return `Email sent (ID: ${email.id}).\n\n${formatEmail(email)}`;
+      });
     },
   );
 
@@ -126,17 +130,17 @@ Only provide the fields you want to change.`,
       },
     },
     async (args) => {
-      try {
-        const { id, ...fields } = args;
+      const { id, ...fields } = args;
+      const changedFields = Object.keys(fields).filter((k) => (fields as Record<string, unknown>)[k] !== undefined);
+      const summary = `Update email #${id}\n  Fields: ${changedFields.join(", ") || "(none)"}`;
+
+      return stageMutation("update_email", summary, async () => {
         const email = await client.put<PropstackEmail>(
           `/messages/${id}`,
           { body: { message: stripUndefined(fields) } },
         );
-
-        return textResult(`Email updated successfully.\n\n${formatEmail(email)}`);
-      } catch (err) {
-        return errorResult("Email", err);
-      }
+        return `Email ${id} updated.\n\n${formatEmail(email)}`;
+      });
     },
   );
 }

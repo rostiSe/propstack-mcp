@@ -3,6 +3,18 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackRelationship } from "../types/propstack.js";
 import { textResult, errorResult } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
+
+function unwrapRelationship(raw: unknown): PropstackRelationship {
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    // API may wrap in { ownership: {...} }, { partnership: {...} }, or { relationship: {...} }
+    for (const key of ["ownership", "partnership", "relationship"]) {
+      if (r[key] && typeof r[key] === "object") return r[key] as PropstackRelationship;
+    }
+  }
+  return raw as PropstackRelationship;
+}
 
 // ── Tool registration ────────────────────────────────────────────────
 
@@ -29,19 +41,17 @@ The ownership appears on both the contact's and the property's record.`,
       },
     },
     async (args) => {
-      try {
-        const rel = await client.post<PropstackRelationship>(
-          "/ownerships",
-          { body: args },
-        );
+      const summary =
+        `Link contact #${args.client_id} as OWNER of property #${args.property_id}`;
 
-        return textResult(
-          `Ownership created (ID: ${rel.id}).\n` +
-          `Contact ${rel.client_id} is now owner of property ${rel.property_id}.`,
+      return stageMutation("create_ownership", summary, async () => {
+        const raw = await client.post<unknown>("/ownerships", { body: args });
+        const rel = unwrapRelationship(raw);
+        return (
+          `Ownership created (ID: ${rel.id ?? "—"}).\n` +
+          `Contact ${rel.client_id ?? args.client_id} is now owner of property ${rel.property_id ?? args.property_id}.`
         );
-      } catch (err) {
-        return errorResult("Ownership", err);
-      }
+      });
     },
   );
 
@@ -69,20 +79,19 @@ The name field describes the role (e.g. "Käufer", "Mieter", "Verwalter").`,
       },
     },
     async (args) => {
-      try {
-        const rel = await client.post<PropstackRelationship>(
-          "/partnerships",
-          { body: args },
-        );
+      const role = args.name ? ` as "${args.name}"` : "";
+      const summary =
+        `Link contact #${args.client_id} to property #${args.property_id}${role} (partnership)`;
 
-        const role = rel.name ? ` as "${rel.name}"` : "";
-        return textResult(
-          `Partnership created (ID: ${rel.id}).\n` +
-          `Contact ${rel.client_id} linked to property ${rel.property_id}${role}.`,
+      return stageMutation("create_partnership", summary, async () => {
+        const rawP = await client.post<unknown>("/partnerships", { body: args });
+        const rel = unwrapRelationship(rawP);
+        const roleFmt = rel.name ? ` as "${rel.name}"` : "";
+        return (
+          `Partnership created (ID: ${rel.id ?? "—"}).\n` +
+          `Contact ${rel.client_id ?? args.client_id} linked to property ${rel.property_id ?? args.property_id}${roleFmt}.`
         );
-      } catch (err) {
-        return errorResult("Partnership", err);
-      }
+      });
     },
   );
 }

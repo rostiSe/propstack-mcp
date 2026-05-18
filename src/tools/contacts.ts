@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PropstackClient } from "../propstack-client.js";
 import type { PropstackContact, PropstackContactSource, PropstackPaginatedResponse } from "../types/propstack.js";
 import { textResult, errorResult, fmt, stripUndefined } from "./helpers.js";
+import { stageMutation } from "./gatekeeper.js";
 
 /**
  * Generate search variants for a phone number. Propstack normalizes spaces/dashes
@@ -274,16 +275,19 @@ Use get_contact_sources first to find valid source IDs.`,
       },
     },
     async (args) => {
-      try {
+      const name = [args.first_name, args.last_name].filter(Boolean).join(" ") || "(no name)";
+      const summary =
+        `Create contact: ${name}\n` +
+        `  Email: ${args.email ?? "—"}\n` +
+        `  Phone: ${args.phone ?? "—"}`;
+
+      return stageMutation("create_contact", summary, async () => {
         const contact = await client.post<PropstackContact>(
           "/contacts",
           { body: { client: stripUndefined(args) } },
         );
-
-        return textResult(`Contact created successfully.\n\n${formatContact(contact)}`);
-      } catch (err) {
-        return errorResult("Contact", err);
-      }
+        return `Contact created (ID: ${contact.id}).\n\n${formatContact(contact)}`;
+      });
     },
   );
 
@@ -350,17 +354,17 @@ Only provide the fields you want to change.`,
       },
     },
     async (args) => {
-      try {
-        const { id, ...fields } = args;
+      const { id, ...fields } = args;
+      const changedFields = Object.keys(fields).filter((k) => (fields as Record<string, unknown>)[k] !== undefined);
+      const summary = `Update contact #${id}\n  Fields: ${changedFields.join(", ") || "(none)"}`;
+
+      return stageMutation("update_contact", summary, async () => {
         const contact = await client.put<PropstackContact>(
           `/contacts/${id}`,
           { body: { client: stripUndefined(fields) } },
         );
-
-        return textResult(`Contact updated successfully.\n\n${formatContact(contact)}`);
-      } catch (err) {
-        return errorResult("Contact", err);
-      }
+        return `Contact ${id} updated.\n\n${formatContact(contact)}`;
+      });
     },
   );
 
@@ -384,12 +388,12 @@ Use this tool for:
       },
     },
     async (args) => {
-      try {
+      const summary = `⚠️  DELETE contact #${args.id} (moved to 30-day recycle bin)`;
+
+      return stageMutation("delete_contact", summary, async () => {
         await client.delete(`/contacts/${args.id}`);
-        return textResult(`Contact ${args.id} deleted (moved to recycle bin for 30 days).`);
-      } catch (err) {
-        return errorResult("Contact", err);
-      }
+        return `Contact ${args.id} deleted (moved to recycle bin for 30 days).`;
+      });
     },
   );
 
